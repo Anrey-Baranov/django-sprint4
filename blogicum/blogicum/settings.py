@@ -5,8 +5,8 @@ TEMPLATES_DIR = BASE_DIR / 'templates'
 
 # Ключ только для локального учебного проекта.
 SECRET_KEY = 'django-insecure-blogicum-local-study-project-only'
-DEBUG = True
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+DEBUG = False
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '*']
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -65,7 +65,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = 'ru-RU'
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/Moscow'
 USE_I18N = True
 USE_TZ = True
 

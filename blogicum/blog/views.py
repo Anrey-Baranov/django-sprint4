@@ -2,8 +2,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import models
 from django.db.models import Count
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.generic import (
     CreateView,
@@ -21,19 +22,22 @@ User = get_user_model()
 PAGINATE_BY = 10
 
 
+def get_published_posts():
+    return Post.objects.filter(
+        is_published=True,
+        category__is_published=True,
+        pub_date__lte=timezone.now(),
+    )
+
+
 class IndexView(ListView):
     model = Post
     template_name = 'blog/index.html'
     paginate_by = PAGINATE_BY
-    context_object_name = 'page_obj'
 
     def get_queryset(self):
         return (
-            Post.objects.filter(
-                is_published=True,
-                category__is_published=True,
-                pub_date__lte=timezone.now(),
-            )
+            get_published_posts()
             .annotate(comment_count=Count('comments'))
             .order_by('-pub_date')
         )
@@ -42,18 +46,14 @@ class IndexView(ListView):
 class CategoryPostsView(ListView):
     template_name = 'blog/category.html'
     paginate_by = PAGINATE_BY
-    context_object_name = 'page_obj'
 
     def get_queryset(self):
         self.category = get_object_or_404(
             Category, slug=self.kwargs['slug'], is_published=True
         )
         return (
-            Post.objects.filter(
-                category=self.category,
-                is_published=True,
-                pub_date__lte=timezone.now(),
-            )
+            get_published_posts()
+            .filter(category=self.category)
             .annotate(comment_count=Count('comments'))
             .order_by('-pub_date')
         )
@@ -81,11 +81,7 @@ class PostDetailView(DetailView):
                 )
                 | models.Q(author=self.request.user)
             )
-        return qs.filter(
-            is_published=True,
-            category__is_published=True,
-            pub_date__lte=timezone.now(),
-        )
+        return get_published_posts()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -97,7 +93,6 @@ class PostDetailView(DetailView):
 class ProfileView(ListView):
     template_name = 'blog/profile.html'
     paginate_by = PAGINATE_BY
-    context_object_name = 'page_obj'
 
     def get_queryset(self):
         self.profile = get_object_or_404(User, username=self.kwargs['username'])
@@ -105,7 +100,11 @@ class ProfileView(ListView):
             comment_count=Count('comments')
         )
         if self.request.user != self.profile:
-            qs = qs.filter(is_published=True, category__is_published=True)
+            qs = qs.filter(
+                is_published=True,
+                category__is_published=True,
+                pub_date__lte=timezone.now(),
+            )
         return qs.order_by('-pub_date')
 
     def get_context_data(self, **kwargs):
@@ -179,9 +178,23 @@ class AddCommentView(LoginRequiredMixin, CreateView):
     form_class = CommentForm
     template_name = 'blog/detail.html'
 
+    def dispatch(self, request, *args, **kwargs):
+        self.post_obj = get_object_or_404(Post, pk=self.kwargs['post_id'])
+        if not self._can_view_post():
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+    def _can_view_post(self):
+        if self.request.user == self.post_obj.author:
+            return True
+        return (
+            self.post_obj.is_published
+            and self.post_obj.category.is_published
+            and self.post_obj.pub_date <= timezone.now()
+        )
+
     def form_valid(self, form):
-        post = get_object_or_404(Post, pk=self.kwargs['post_id'])
-        form.instance.post = post
+        form.instance.post = self.post_obj
         form.instance.author = self.request.user
         return super().form_valid(form)
 
@@ -244,4 +257,4 @@ class EditProfileView(LoginRequiredMixin, UpdateView):
 class RegistrationView(CreateView):
     form_class = CustomUserCreationForm
     template_name = 'registration/registration_form.html'
-    success_url = '/auth/login/'
+    success_url = reverse_lazy('login')
